@@ -1,0 +1,79 @@
+﻿<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+  <head>
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+  <meta name="generator" content="PSPad editor, www.pspad.com">
+   <link rel="stylesheet" href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css" integrity="sha384-AYmEC3Yw5cVb3ZcuHtOA93w35dYTsvhLPVnYs9eStHfGJvOvKxVfELGroGkvsg+p" crossorigin="anonymous" />
+   <link rel="stylesheet" href="styles.css">
+  <title>Meteostanica</title>
+  </head>
+  <body>
+ <div class="container">
+        <div class="topbar">
+            <div class="logo">
+                <h2>Meteostanica + skleník</h2>
+            </div>
+        </div>
+        <div class="sidebar">
+            <ul>
+                <li>
+                    <a href="hlavnemenu.html">
+                        <i class="fas fa-th-large"></i>
+                        <div>Hlavné menu</div>
+                    </a>
+                </li>
+                <li>
+                    <a href="meteostanica.html">
+                        <i class="fa fa-cloud"></i>
+                        <div>Meteostanica</div>
+                    </a>
+                </li>
+               <li>
+                    <a href="sklenik.html">
+                       <i class="fa fa-home" aria-hidden="true"></i>
+                        <div>Skleník</div>
+                    </a>
+                </li>
+                <li>
+                    <a href="#">
+                        <i class="fas fa-cog"></i>
+                        <div>Nastavenia</div>
+                    </a>
+                </li>
+               
+            </ul>
+        </div>
+        <div class="main">
+            <center><h2>Aktuálne informácie </h2></center>
+            &nbsp
+            
+
+
+
+<iframe width="450" height="260" style="border: 1px solid #cccccc;" src="https://thingspeak.com/channels/1890424/widgets/602408"></iframe>
+
+
+
+
+
+            <div class="charts">
+                <div class="chart">
+                    <h2>Earnings (past 12 months)</h2>
+                    <div>
+                        <canvas id="lineChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart doughnut-chart">
+                    <h2>Employees</h2>
+                    <div>
+                        <canvas id="doughnut"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.5.1/dist/chart.min.js"></script>
+    <script src="chart1.js"></script>
+    <script src="chart2.js"></script>
+  </body>
+</html>
