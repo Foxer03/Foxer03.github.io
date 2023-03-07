@@ -1,2 +1,2 @@
 # Foxer03.github.io
-School project
+School project - Arduino Greenhouse
