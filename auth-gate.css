@@ -1,0 +1,13 @@
+
+html.esp32-locked body > :not(#esp32-auth-gate) {filter:blur(9px);pointer-events:none;user-select:none}
+html.esp32-locked {overflow:hidden}
+#esp32-auth-gate{position:fixed;inset:0;z-index:2147483600;display:grid;place-items:center;padding:18px;background:rgba(9,17,33,.55);backdrop-filter:blur(5px);font-family:Inter,system-ui,sans-serif;color:#16233c}
+#esp32-auth-gate[hidden]{display:none!important}
+.esp32-auth-card{width:min(100%,450px);background:#fff;border-radius:22px;padding:28px;box-shadow:0 25px 75px #0005}
+.esp32-auth-card h2{margin:8px 0;font-size:25px}.esp32-auth-card p{color:#58677b;line-height:1.5}
+.esp32-auth-card label{display:block;margin:14px 0 5px;font-weight:600;font-size:13px}
+.esp32-auth-card input{box-sizing:border-box;width:100%;padding:12px 14px;border:1px solid #bdc9da;border-radius:11px;font:inherit;background:white;color:#16233c}
+.esp32-auth-card button{width:100%;padding:13px;margin-top:20px;border:0;border-radius:11px;background:#2e5bff;color:#fff;font:inherit;font-weight:700;cursor:pointer}
+.esp32-auth-card button:disabled{opacity:.6;cursor:wait}
+#esp32-auth-message{min-height:20px;color:#b42318;font-size:13px;margin-top:12px}
+.esp32-auth-hint{font-size:12px;margin-bottom:0}

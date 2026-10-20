@@ -1,0 +1,7 @@
+.env
+.env.*
+*.pem
+*.key
+*backup*
+__pycache__/
+node_modules/
