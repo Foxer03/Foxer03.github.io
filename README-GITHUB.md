@@ -14,3 +14,9 @@ Quick Tunnel je náhodná adresa a po reštarte sa mení. Pri prihlásení zadaj
 **DÔLEŽITÉ:** GitHub Pages a trycloudflare.com sú odlišné webové domény. Session cookie s `SameSite=None; Secure; HttpOnly` môže fungovať len keď FastAPI/Nginx správne odpovedajú CORS s presným `Access-Control-Allow-Origin: https://foxer03.github.io` a `Access-Control-Allow-Credentials: true`. Prehliadače blokujúce third-party cookies môžu napriek tomu odmietnuť prihlásenie. Spoľahlivé riešenie je rovnaký webový origin pre stránku aj API (napr. Cloudflare Tunnel cez Nginx, prípadne vlastná doména/reverzná proxy). Nikdy nepoužívaj `Access-Control-Allow-Origin: *` s cookies.
 
 Pred sprístupnením API verejnosti: chráň prihlásenie pred brute-force, vypni priamy prístup k CouchDB a FastAPI mimo lokálnej siete, povoľ CORS len konkrétnemu webu, nevystavuj MQTT bez autentifikácie a skontroluj Nginx routy. HTML login overlay sám osebe nie je ochrana API.
+
+
+## Mapa a MQTT
+Mapa teraz číta posledné ESP32 meranie a merania siedmich staníc Smart Žilina cez existujúci endpoint `/api/smartzilina?station=...`. Žiadne simulované hodnoty sa nezobrazujú. Polohy Smart Žilina sú **iba približné podľa názvov lokalít**; nie sú overené GPS pozície. Ak API pre veličinu nevráti meranie, zobrazuje sa `—`.
+
+Stav MQTT podporuje `{"online":true}` aj `{"status":"online"}`. **Dôležité:** Keďže `auth-gate.js` posiela `credentials: include`, v Nginx bloku `location = /api/status/mqtt` musí byť `add_header Access-Control-Allow-Origin "https://foxer03.github.io" always;` a `add_header Access-Control-Allow-Credentials "true" always;`. Inak prehliadač zablokuje odpoveď aj keď curl funguje.

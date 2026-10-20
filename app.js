@@ -39,8 +39,8 @@ async function checkServices(){
  if(generation!==serviceCheckGeneration)return;
  markService('state-esp',esp.status==='fulfilled','ESP32 API: '+(esp.status==='fulfilled'?'online':'nedostupné'));
  markService('state-smart',smart.status==='fulfilled','Smart Žilina API: '+(smart.status==='fulfilled'?'online':'nedostupné'));
- const mqttKnown=mqtt.status==='fulfilled' && typeof mqtt.value?.online==='boolean';
- markService('state-mqtt',mqttKnown?mqtt.value.online:null,'MQTT: '+(mqttKnown?(mqtt.value.online?'online':'nedostupné'):'neoverené'));
+ const mqttValue=mqtt.status==='fulfilled'?(typeof mqtt.value?.online==='boolean'?mqtt.value.online:(mqtt.value?.status==='online'?true:(mqtt.value?.status==='offline'?false:null))):null;
+ markService('state-mqtt',mqttValue,'MQTT: '+(mqttValue===true?'online':mqttValue===false?'nedostupné':'neoverené'));
  document.getElementById('api-overall').textContent=esp.status==='fulfilled'&&smart.status==='fulfilled'?'API sú dostupné':'Skontroluj tunel alebo služby';
  const ownStatus=document.getElementById('api-own-status'),ownData=document.getElementById('api-own-data');
  if(esp.status!=='fulfilled'){ownStatus.textContent='ESP32 API je nedostupné';ownData.hidden=true;return;}
