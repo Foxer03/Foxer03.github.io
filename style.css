@@ -38,3 +38,6 @@
 #api-config-form[hidden], .api-own[hidden]{display:none!important}
 .api-connection{padding:16px 24px;margin-top:18px}
 .api-services{margin:12px 0 0}
+
+/* Rozšírené filtre analýzy */
+.analysis-filters{display:flex;align-items:end;flex-wrap:wrap;gap:12px;padding:14px 0 10px;border-top:1px solid #edf1f7;margin-top:14px}.filter-group{display:flex;flex-direction:column;gap:7px}.filter-label{font-size:12px;font-weight:650;color:#64748b}.analysis-filters input{font:inherit;font-size:13px;color:#334155;background:#fff;border:1px solid #dce4ef;border-radius:8px;padding:9px 10px;min-height:40px}.source-filter{display:flex;flex-wrap:wrap;gap:5px;background:#f1f5f9;padding:4px;border-radius:9px}.source-filter button{border:0;border-radius:7px;background:transparent;color:#64748b;padding:8px 11px;font:inherit;font-size:13px;cursor:pointer}.source-filter button.active{background:#fff;color:#3159df;box-shadow:0 1px 5px #1e293b18;font-weight:650}.analysis-filters>.secondary-button{min-height:40px}.range-notice{font-size:12px;color:#64748b;min-height:16px;margin:0 0 8px}.periods{flex-wrap:wrap}@media(max-width:700px){.analysis-filters{align-items:stretch}.filter-group{flex:1 1 170px}.source-filter{justify-content:center}}
