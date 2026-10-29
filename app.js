@@ -159,13 +159,13 @@ const alertThresholds={
 };
 const alertNames={co2:['eCO₂','ppm',0],tvoc:['TVOC','ppb',0]};
 const alertEspFields={co2:['ccs811_eco2','eco2','co2'],tvoc:['ccs811_tvoc','tvoc']};
-let alertStationData=new Map(),alertExpanded=false,alertLoading=false,alertChecked=false;
+let alertStationData=new Map(),alertLoading=false,alertChecked=false;
 const alertMaxAge=3*60*60*1000;
-function alertAdd(result,source,key,value,time){
+function alertAdd(result,source,key,value,time,stationId=null){
  const rule=alertThresholds[key];if(!rule||!Number.isFinite(value)||!Number.isFinite(time))return;
  if(time>Date.now()+5*60000||Date.now()-time>alertMaxAge)return;
  if(rule.max!==undefined&&value>rule.max){const def=metricDefs[key]||alertNames[key];if(!def)return;
-  result.push({source,name:def[0],value,unit:def[1],limit:rule.max,time,excess:(value-rule.max)/Math.max(rule.max,1)});
+  result.push({source,stationId,name:def[0],value,unit:def[1],limit:rule.max,time,excess:(value-rule.max)/Math.max(rule.max,1)});
  }
 }
 function latestAlertPoint(data,key){
@@ -176,7 +176,7 @@ function renderAlerts(){
  const panel=document.getElementById('alert-center'),grid=document.getElementById('alert-cards'),more=document.getElementById('alert-more');if(!panel)return;
  const alerts=[];
  for(const station of stationDefs){const data=alertStationData.get(station.id);if(!data)continue;
-  for(const key of Object.keys(alertThresholds)){const point=latestAlertPoint(data,key);if(point)alertAdd(alerts,'Smart Žilina · '+station.name,key,point.value,point.time);}
+  for(const key of Object.keys(alertThresholds)){const point=latestAlertPoint(data,key);if(point)alertAdd(alerts,'Smart Žilina · '+station.name,key,point.value,point.time,station.id);}
  }
  // Z ESP32 vyberáme vždy posledné meranie pre daný senzor, aj keď sa v medzičase iné senzory nezmenili.
  for(const key of Object.keys(alertThresholds)){
@@ -184,17 +184,18 @@ function renderAlerts(){
   for(const row of espMeasurements){const time=Date.parse(row.timestamp);if(!Number.isFinite(time))continue;
    let value=null;if(fields){for(const field of fields){if(row[field]!==undefined&&row[field]!==null&&row[field]!==''&&Number.isFinite(Number(row[field]))){value=Number(row[field]);break;}}}else value=espValue(row,key);
    if(value!==null&&(!best||time>best.time))best={value,time};
-  }if(best)alertAdd(alerts,'ESP32 · vlastný senzor',key,best.value,best.time);
+  }if(best)alertAdd(alerts,'ESP32 · vlastný senzor',key,best.value,best.time,'esp32');
  }
  alerts.sort((a,b)=>b.excess-a.excess||b.time-a.time);
  panel.classList.toggle('has-alerts',alerts.length>0);
  document.getElementById('alert-count').textContent=alerts.length?String(alerts.length):'✓';
  document.getElementById('alert-title').textContent=alerts.length?alerts.length===1?'1 zvýšená hodnota':alerts.length+' zvýšených hodnôt':'Prostredie pod kontrolou';
  document.getElementById('alert-caption').textContent=alerts.length?'Zaznamenali sme prekročenie orientačných hraníc.':'Automatická kontrola ESP32 a staníc Smart Žilina';
- grid.replaceChildren();
+ const previousScroll=grid.scrollLeft;grid.replaceChildren();
  if(!alerts.length){const d=document.createElement('div');d.className=alertChecked?'alert-ok':'alert-wait';d.textContent=alertLoading?'Kontrolujem stanice…':!apiBase?'Pripoj Cloudflare Tunnel na kontrolu meraní.':!alertChecked?'Údaje zatiaľ nie sú dostupné – nemožno vyhodnotiť limity.':'Žiadne zvýšené hodnoty z dostupných čerstvých meraní.';grid.append(d);}
- else for(const a of (alertExpanded?alerts:alerts.slice(0,3))){const item=document.createElement('article');item.className='alert-card';const label=document.createElement('div');label.className='alert-card-label';label.textContent=a.name;const amount=document.createElement('strong');amount.textContent=a.value.toLocaleString('sk-SK',{maximumFractionDigits:2})+' '+a.unit;const where=document.createElement('div');where.className='where';where.textContent=a.source;const details=document.createElement('div');details.className='details';details.textContent='Orientačná hranica: '+a.limit.toLocaleString('sk-SK')+' '+a.unit+' · '+timeLabel(a.time,true);item.append(label,amount,where,details);grid.append(item);}
- more.hidden=alerts.length<=3;more.textContent=alertExpanded?'Zobraziť menej':'Zobraziť všetky výstrahy ('+alerts.length+')';
+ else for(const a of alerts){const item=document.createElement('article');item.className='alert-card';const label=document.createElement('div');label.className='alert-card-label';label.textContent=a.name;const amount=document.createElement('strong');amount.textContent=a.value.toLocaleString('sk-SK',{maximumFractionDigits:2})+' '+a.unit;const where=document.createElement('div');where.className='where';where.textContent=a.source;const details=document.createElement('div');details.className='details';details.textContent='Hranica: '+a.limit.toLocaleString('sk-SK')+' '+a.unit+' · '+timeLabel(a.time,true);const btn=document.createElement('button');btn.type='button';btn.className='alert-detail-btn';btn.textContent='Podrobnosti';btn.addEventListener('click',()=>openAlertDetail(a));item.append(label,amount,where,details,btn);grid.append(item);}
+ grid.scrollLeft=alerts.length?previousScroll:0;requestAnimationFrame(updateAlertArrows);
+
 }
 async function loadAlertStations(){
  if(!apiBase){alertStationData.clear();alertChecked=false;renderAlerts();return;}
@@ -206,7 +207,46 @@ async function loadAlertStations(){
  if(base!==apiBase)return;
  alertStationData=updates;alertLoading=false;alertChecked=updates.size>0||espMeasurements.length>0;renderAlerts();
 }
-document.getElementById('alert-more').addEventListener('click',()=>{alertExpanded=!alertExpanded;renderAlerts();});
+const alertTrack=document.getElementById('alert-cards');
+function updateAlertArrows(){const hasOverflow=alertTrack.scrollWidth>alertTrack.clientWidth+3;const max=Math.max(0,alertTrack.scrollWidth-alertTrack.clientWidth);document.getElementById('alert-prev').disabled=!hasOverflow||alertTrack.scrollLeft<3;document.getElementById('alert-next').disabled=!hasOverflow||alertTrack.scrollLeft>=max-3;const count=alertTrack.querySelectorAll('.alert-card').length;document.getElementById('alert-position').textContent=hasOverflow?`${count} výstrah · posúvaj šípkami alebo potiahnutím`:'';}
+function slideAlerts(direction){const card=alertTrack.querySelector('.alert-card');alertTrack.scrollBy({left:direction*(card?card.getBoundingClientRect().width+12:260),behavior:'smooth'});}
+document.getElementById('alert-prev').addEventListener('click',()=>slideAlerts(-1));
+document.getElementById('alert-next').addEventListener('click',()=>slideAlerts(1));
+alertTrack.addEventListener('scroll',updateAlertArrows,{passive:true});window.addEventListener('resize',updateAlertArrows);
+const alertCoords={
+ '651ebcc63d55d70001ff67ba':[49.2075,18.7650],
+ '651ebcc63d55d70001ff67bc':[49.2188,18.7508],
+ '651ebcc63d55d70001ff67c5':[49.2146,18.7464],
+ '651ebcc63d55d70001ff67be':[49.2256,18.7442],
+ '651ebcc63d55d70001ff67bb':[49.2227,18.7383],
+ '651ebcc63d55d70001ff67b9':[49.2300,18.7040],
+ '651ebcc63d55d70001ff67bd':[49.2620,18.7390]
+};
+const alertDialog=document.getElementById('alert-dialog');let alertMiniMap=null;
+function openAlertDetail(a){
+ document.getElementById('alert-dialog-title').textContent=a.name+' · '+a.source;
+ const stats=document.getElementById('alert-dialog-stats');stats.replaceChildren();
+ const fields=[['Nameraná hodnota',a.value.toLocaleString('sk-SK',{maximumFractionDigits:2})+' '+a.unit],['Orientačná hranica',a.limit.toLocaleString('sk-SK')+' '+a.unit],['Prekročenie', (a.value-a.limit).toLocaleString('sk-SK',{maximumFractionDigits:2})+' '+a.unit],['Čas merania',timeLabel(a.time,true)]];
+ for(const [name,value] of fields){const cell=document.createElement('div');cell.className='alert-dialog-stat';const small=document.createElement('span');small.textContent=name;const strong=document.createElement('strong');strong.textContent=value;cell.append(small,strong);stats.append(cell);}
+ let coords=alertCoords[a.stationId]||null;let approximate=true;
+ if(a.stationId==='esp32'){
+  let latestGps=null;for(const measurement of espMeasurements){const lat=Number(measurement.latitude),lon=Number(measurement.longitude),time=Date.parse(measurement.timestamp);if(measurement.latitude!=null&&measurement.longitude!=null&&Number.isFinite(lat)&&Number.isFinite(lon)&&Number.isFinite(time)&&Math.abs(lat)<=90&&Math.abs(lon)<=180&&(lat!==0||lon!==0)&&(!latestGps||time>latestGps.time))latestGps={lat,lon,time};}
+  if(latestGps){coords=[latestGps.lat,latestGps.lon];approximate=false;}else coords=[49.223831,18.738880];
+ }
+ document.getElementById('alert-map-note').textContent=approximate?'Poloha je orientačná, nie overené GPS súradnice.':'GPS poloha nahlásená zariadením.';
+ const mapBox=document.getElementById('alert-mini-map');mapBox.replaceChildren();
+ if(alertMiniMap){alertMiniMap.remove();alertMiniMap=null;}
+ alertDialog.showModal();
+ if(typeof L==='undefined'){mapBox.textContent='Mapu sa nepodarilo načítať. Poloha stanice je dostupná na stránke Mapa.';return;}
+ alertMiniMap=L.map(mapBox,{scrollWheelZoom:false}).setView(coords,14);
+ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(alertMiniMap);
+ L.circleMarker(coords,{radius:10,color:'#fff',weight:3,fillColor:'#ec6436',fillOpacity:1}).addTo(alertMiniMap).bindTooltip(a.source,{permanent:false});
+ requestAnimationFrame(()=>alertMiniMap?.invalidateSize());
+}
+function closeAlertDetail(){alertDialog.close();if(alertMiniMap){alertMiniMap.remove();alertMiniMap=null;}}
+document.getElementById('alert-dialog-close').addEventListener('click',closeAlertDetail);
+alertDialog.addEventListener('click',e=>{if(e.target===alertDialog)closeAlertDetail();});
+alertDialog.addEventListener('close',()=>{if(alertMiniMap){alertMiniMap.remove();alertMiniMap=null;}});
 
 // UI-only server upload and per-device approval. No real upload or installation.
 const firmwareInput=document.getElementById('firmware');
