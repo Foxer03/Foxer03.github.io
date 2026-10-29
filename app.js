@@ -238,25 +238,29 @@ function openAlertDetail(a){
   if(latestGps){coords=[latestGps.lat,latestGps.lon];approximate=false;}else coords=[49.223831,18.738880];
  }
  document.getElementById('alert-map-note').textContent=approximate?'Poloha je orientačná, nie overené GPS súradnice.':'GPS poloha nahlásená zariadením.';
- const mapBox=document.getElementById('alert-mini-map');mapBox.replaceChildren();
- if(alertMiniMap){alertMiniMap.remove();alertMiniMap=null;}
+ const mapBox=document.getElementById('alert-mini-map');
+ mapBox.replaceChildren();
+ // OpenStreetMap poskytuje priamo vloženú interaktívnu mapu so svojimi štýlmi.
+ // Nespoliehame sa na Leaflet v hlavnej stránke, ktorý tu spôsoboval rozbité dlaždice.
+ if(!coords || !Number.isFinite(coords[0]) || !Number.isFinite(coords[1])){
+  mapBox.textContent='Poloha stanice nie je dostupná.';
+ }else{
+  const [lat,lon]=coords;
+  const latSpan=0.012,lonSpan=0.020;
+  const bbox=[lon-lonSpan,lat-latSpan,lon+lonSpan,lat+latSpan].join(',');
+  const iframe=document.createElement('iframe');
+  iframe.title='Poloha stanice na mape OpenStreetMap';
+  iframe.setAttribute('loading','eager');
+  iframe.setAttribute('referrerpolicy','no-referrer-when-downgrade');
+  iframe.setAttribute('allowfullscreen','');
+  iframe.src='https://www.openstreetmap.org/export/embed.html?bbox='+encodeURIComponent(bbox)+'&layer=mapnik&marker='+encodeURIComponent(lat+','+lon);
+  mapBox.appendChild(iframe);
+ }
  alertDialog.showModal();
- if(typeof L==='undefined'){mapBox.textContent='Mapu sa nepodarilo načítať. Poloha stanice je dostupná na stránke Mapa.';return;}
- // Leaflet meria veľkosť kontajnera pri vytvorení. Dialog musí byť už vykreslený.
- requestAnimationFrame(()=>requestAnimationFrame(()=>{
-  if(!alertDialog.open)return;
-  alertMiniMap=L.map(mapBox,{scrollWheelZoom:false,zoomControl:true}).setView(coords,14);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(alertMiniMap);
-  L.circleMarker(coords,{radius:10,color:'#fff',weight:3,fillColor:'#ec6436',fillOpacity:1}).addTo(alertMiniMap).bindTooltip(a.source,{permanent:false});
-  // Opraví veľkosť a rozloženie dlaždíc po otvorení modálneho okna.
-  const fixSize=()=>{if(alertDialog.open&&alertMiniMap){alertMiniMap.invalidateSize({pan:false,animate:false});alertMiniMap.setView(coords,14,{animate:false});}};
-  fixSize();setTimeout(fixSize,120);setTimeout(fixSize,450);
- }));
 }
-function closeAlertDetail(){alertDialog.close();if(alertMiniMap){alertMiniMap.remove();alertMiniMap=null;}}
+function closeAlertDetail(){alertDialog.close();}
 document.getElementById('alert-dialog-close').addEventListener('click',closeAlertDetail);
 alertDialog.addEventListener('click',e=>{if(e.target===alertDialog)closeAlertDetail();});
-alertDialog.addEventListener('close',()=>{if(alertMiniMap){alertMiniMap.remove();alertMiniMap=null;}});
 
 // UI-only server upload and per-device approval. No real upload or installation.
 const firmwareInput=document.getElementById('firmware');

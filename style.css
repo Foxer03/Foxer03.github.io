@@ -85,3 +85,6 @@
 .alert-card.severity-low{border-color:#f5be69}
 .alert-card.severity-medium{border-color:#f69751}
 .alert-card.severity-high{border-color:#ff777e}
+
+/* Vložená mapa v detaile výstrahy – bez konfliktov Leaflet CSS. */
+#alert-mini-map iframe{display:block;width:100%;height:100%;border:0;border-radius:12px;background:#e9eef6}
