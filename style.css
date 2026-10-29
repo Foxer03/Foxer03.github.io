@@ -73,3 +73,15 @@
 .alert-mini-map img{max-width:none!important}.alert-map-note{color:#67768e;font-size:12px;margin:9px 0 0}
 @media(max-width:1000px){.alert-card{flex-basis:calc((100% - 12px)/2)}}
 @media(max-width:650px){.alert-card{flex-basis:100%}.alert-arrow{flex-basis:30px;width:30px}.alert-dialog-content{padding:16px}.alert-dialog-top{padding:18px}.alert-dialog-stats{gap:7px}.alert-dialog-stat strong{font-size:17px}}
+
+/* Mapa vo výstrahe: izolovanie Leaflet vrstiev od štýlov stránky. */
+#alert-mini-map{position:relative;display:block;width:100%;height:270px;min-height:270px;overflow:hidden;isolation:isolate}
+#alert-mini-map .leaflet-map-pane,#alert-mini-map .leaflet-tile-pane,#alert-mini-map .leaflet-tile-container{position:absolute}
+#alert-mini-map .leaflet-tile{max-width:none!important;max-height:none!important}
+/* Farba hlavičky podľa percentuálneho prekročenia orientačného limitu. */
+#alert-dialog[data-severity="low"] .alert-dialog-top{background:linear-gradient(110deg,#936019,#bf801d)}
+#alert-dialog[data-severity="medium"] .alert-dialog-top{background:linear-gradient(110deg,#a94b20,#d26b27)}
+#alert-dialog[data-severity="high"] .alert-dialog-top{background:linear-gradient(110deg,#9e2835,#c43a49)}
+.alert-card.severity-low{border-color:#f5be69}
+.alert-card.severity-medium{border-color:#f69751}
+.alert-card.severity-high{border-color:#ff777e}

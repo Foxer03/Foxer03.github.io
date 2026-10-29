@@ -193,7 +193,7 @@ function renderAlerts(){
  document.getElementById('alert-caption').textContent=alerts.length?'Zaznamenali sme prekročenie orientačných hraníc.':'Automatická kontrola ESP32 a staníc Smart Žilina';
  const previousScroll=grid.scrollLeft;grid.replaceChildren();
  if(!alerts.length){const d=document.createElement('div');d.className=alertChecked?'alert-ok':'alert-wait';d.textContent=alertLoading?'Kontrolujem stanice…':!apiBase?'Pripoj Cloudflare Tunnel na kontrolu meraní.':!alertChecked?'Údaje zatiaľ nie sú dostupné – nemožno vyhodnotiť limity.':'Žiadne zvýšené hodnoty z dostupných čerstvých meraní.';grid.append(d);}
- else for(const a of alerts){const item=document.createElement('article');item.className='alert-card';const label=document.createElement('div');label.className='alert-card-label';label.textContent=a.name;const amount=document.createElement('strong');amount.textContent=a.value.toLocaleString('sk-SK',{maximumFractionDigits:2})+' '+a.unit;const where=document.createElement('div');where.className='where';where.textContent=a.source;const details=document.createElement('div');details.className='details';details.textContent='Hranica: '+a.limit.toLocaleString('sk-SK')+' '+a.unit+' · '+timeLabel(a.time,true);const btn=document.createElement('button');btn.type='button';btn.className='alert-detail-btn';btn.textContent='Podrobnosti';btn.addEventListener('click',()=>openAlertDetail(a));item.append(label,amount,where,details,btn);grid.append(item);}
+ else for(const a of alerts){const item=document.createElement('article');item.className='alert-card severity-'+alertSeverity(a);const label=document.createElement('div');label.className='alert-card-label';label.textContent=a.name;const amount=document.createElement('strong');amount.textContent=a.value.toLocaleString('sk-SK',{maximumFractionDigits:2})+' '+a.unit;const where=document.createElement('div');where.className='where';where.textContent=a.source;const details=document.createElement('div');details.className='details';details.textContent='Hranica: '+a.limit.toLocaleString('sk-SK')+' '+a.unit+' · '+timeLabel(a.time,true);const btn=document.createElement('button');btn.type='button';btn.className='alert-detail-btn';btn.textContent='Podrobnosti';btn.addEventListener('click',()=>openAlertDetail(a));item.append(label,amount,where,details,btn);grid.append(item);}
  grid.scrollLeft=alerts.length?previousScroll:0;requestAnimationFrame(updateAlertArrows);
 
 }
@@ -223,8 +223,12 @@ const alertCoords={
  '651ebcc63d55d70001ff67bd':[49.2620,18.7390]
 };
 const alertDialog=document.getElementById('alert-dialog');let alertMiniMap=null;
+// Závažnosť je len relatívna miera prekročenia nastavenej orientačnej hranice.
+function alertSeverity(a){const ratio=(a.value-a.limit)/Math.max(Math.abs(a.limit),1);return ratio>=0.5?'high':ratio>=0.2?'medium':'low';}
+
 function openAlertDetail(a){
  document.getElementById('alert-dialog-title').textContent=a.name+' · '+a.source;
+ document.getElementById('alert-dialog').dataset.severity=alertSeverity(a);
  const stats=document.getElementById('alert-dialog-stats');stats.replaceChildren();
  const fields=[['Nameraná hodnota',a.value.toLocaleString('sk-SK',{maximumFractionDigits:2})+' '+a.unit],['Orientačná hranica',a.limit.toLocaleString('sk-SK')+' '+a.unit],['Prekročenie', (a.value-a.limit).toLocaleString('sk-SK',{maximumFractionDigits:2})+' '+a.unit],['Čas merania',timeLabel(a.time,true)]];
  for(const [name,value] of fields){const cell=document.createElement('div');cell.className='alert-dialog-stat';const small=document.createElement('span');small.textContent=name;const strong=document.createElement('strong');strong.textContent=value;cell.append(small,strong);stats.append(cell);}
@@ -238,10 +242,16 @@ function openAlertDetail(a){
  if(alertMiniMap){alertMiniMap.remove();alertMiniMap=null;}
  alertDialog.showModal();
  if(typeof L==='undefined'){mapBox.textContent='Mapu sa nepodarilo načítať. Poloha stanice je dostupná na stránke Mapa.';return;}
- alertMiniMap=L.map(mapBox,{scrollWheelZoom:false}).setView(coords,14);
- L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(alertMiniMap);
- L.circleMarker(coords,{radius:10,color:'#fff',weight:3,fillColor:'#ec6436',fillOpacity:1}).addTo(alertMiniMap).bindTooltip(a.source,{permanent:false});
- requestAnimationFrame(()=>alertMiniMap?.invalidateSize());
+ // Leaflet meria veľkosť kontajnera pri vytvorení. Dialog musí byť už vykreslený.
+ requestAnimationFrame(()=>requestAnimationFrame(()=>{
+  if(!alertDialog.open)return;
+  alertMiniMap=L.map(mapBox,{scrollWheelZoom:false,zoomControl:true}).setView(coords,14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(alertMiniMap);
+  L.circleMarker(coords,{radius:10,color:'#fff',weight:3,fillColor:'#ec6436',fillOpacity:1}).addTo(alertMiniMap).bindTooltip(a.source,{permanent:false});
+  // Opraví veľkosť a rozloženie dlaždíc po otvorení modálneho okna.
+  const fixSize=()=>{if(alertDialog.open&&alertMiniMap){alertMiniMap.invalidateSize({pan:false,animate:false});alertMiniMap.setView(coords,14,{animate:false});}};
+  fixSize();setTimeout(fixSize,120);setTimeout(fixSize,450);
+ }));
 }
 function closeAlertDetail(){alertDialog.close();if(alertMiniMap){alertMiniMap.remove();alertMiniMap=null;}}
 document.getElementById('alert-dialog-close').addEventListener('click',closeAlertDetail);
