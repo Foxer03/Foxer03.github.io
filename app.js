@@ -262,7 +262,7 @@ function closeAlertDetail(){alertDialog.close();}
 document.getElementById('alert-dialog-close').addEventListener('click',closeAlertDetail);
 alertDialog.addEventListener('click',e=>{if(e.target===alertDialog)closeAlertDetail();});
 
-// UI-only server upload and per-device approval. No real upload or installation.
+// Reálne OTA nahrávanie. Povolenie inštalácie sa zapne až po pridaní serverového API.
 const firmwareInput=document.getElementById('firmware');
 const otaStart=document.getElementById('ota-start');
 const otaCancel=document.getElementById('ota-cancel');
@@ -270,38 +270,101 @@ const otaMessage=document.getElementById('ota-message');
 const otaApprove=document.getElementById('ota-approve');
 const otaRevoke=document.getElementById('ota-revoke');
 const otaReleases=new Map();
-let otaTimer=null;
-function validateFirmware(file){if(!file)return 'Nie je vybraný žiadny súbor.';if(!file.name.toLowerCase().endsWith('.bin'))return 'Vyber súbor firmvéru s príponou .bin.';if(file.size===0)return 'Súbor je prázdny. Vyber platný firmvér.';return null;}
-function renderApproval(){
- const release=otaReleases.get(selectedOtaDevice);
- const current=otaDevices[selectedOtaDevice].currentFirmware;
- document.getElementById('current-firmware').textContent=current?.name||'Neznámy — čaká na údaje zo servera';
- document.getElementById('current-version').textContent='Verzia: '+(current?.version||'neznáma');
- document.getElementById('release-version').textContent='Verzia: '+(release?.version||'neznáma');
- document.getElementById('release-file').textContent=release?release.name+' · '+(release.size/1024).toLocaleString('sk-SK',{maximumFractionDigits:1})+' kB':'Zatiaľ nie je dostupný';
- document.getElementById('release-status').hidden=!release;
- document.getElementById('release-status').textContent=!release?'':release.approved?'Povolené · čaká na kontrolu ESP32 (simulácia)':'Pripravené · inštalácia nepovolená (simulácia)';
- otaApprove.disabled=!release||release.approved||otaTimer!==null||!isDemoAdmin;
- otaRevoke.hidden=!release?.approved;otaRevoke.disabled=otaTimer!==null||!isDemoAdmin;
- document.getElementById('approval-message').textContent=release?.approved?'Pri nasledujúcom meraní by si táto stanica mohla stiahnuť a nainštalovať povolený firmvér. Inštalácia zatiaľ nie je potvrdená.':'Povolenie platí iba pre konkrétny firmvér a vybrané zariadenie.';
+let otaRequest=null;
+const MAX_FIRMWARE_SIZE=4*1024*1024;
+function validateFirmware(file){
+ if(!file)return 'Vyber súbor firmvéru.';
+ if(!file.name.toLowerCase().endsWith('.bin'))return 'Vyber súbor s príponou .bin.';
+ if(file.size<1024)return 'Firmvér musí mať aspoň 1 kB.';
+ if(file.size>MAX_FIRMWARE_SIZE)return 'Firmvér nesmie byť väčší než 4 MB.';
+ return null;
 }
-firmwareInput.addEventListener('change',()=>{const file=firmwareInput.files[0],error=validateFirmware(file);otaStart.disabled=!!error;const info=document.getElementById('firmware-info');info.classList.toggle('ota-error',!!file&&!!error);info.textContent=error||`${file.name} · ${(file.size/1024).toLocaleString('sk-SK',{maximumFractionDigits:1})} kB`;document.getElementById('ota-progress-wrap').hidden=true;otaMessage.textContent='Výber súboru nič nemení. Dokončené nahratie nového firmvéru bude vyžadovať nové povolenie.';});
-function endOta(message){clearInterval(otaTimer);otaTimer=null;firmwareInput.disabled=false;document.getElementById('firmware-version').disabled=false;document.getElementById('ota-device').disabled=false;otaStart.disabled=!!validateFirmware(firmwareInput.files[0]);otaCancel.hidden=true;otaMessage.textContent=message;renderApproval();}
-document.getElementById('ota-form').addEventListener('submit',event=>{
- event.preventDefault();const file=firmwareInput.files[0];if(!isDemoAdmin||otaTimer!==null||validateFirmware(file))return;
- const target=selectedOtaDevice;
- const version=document.getElementById('firmware-version').value.trim();
- document.getElementById('firmware-version').disabled=true;
- firmwareInput.disabled=true;document.getElementById('ota-device').disabled=true;otaStart.disabled=true;otaCancel.hidden=false;otaApprove.disabled=true;otaRevoke.disabled=true;
- document.getElementById('ota-progress-wrap').hidden=false;let value=0;
- const update=()=>{document.getElementById('ota-progress').value=value;document.getElementById('ota-percent').textContent=`${value} %`;document.getElementById('ota-stage').textContent=value<100?'Simulácia · nahrávanie na server':'Simulácia uloženia dokončená';};update();
- otaMessage.textContent=`Simulácia nahrávania pre ${otaDevices[target].name}. Súbor sa nikam neodosiela.`;
- otaTimer=setInterval(()=>{value=Math.min(value+10,100);update();if(value===100){otaReleases.set(target,{name:file.name,size:file.size,version:version||null,approved:false});firmwareInput.value='';document.getElementById('firmware-info').textContent='Nie je vybraný žiadny súbor.';endOta('Firmvér je v ukážke pripravený. Inštalácia zostáva nepovolená, kým ju samostatne nepovolíš.');}},200);
+function validateOtaVersion(value){return /^\d+\.\d+\.\d+$/.test(value.trim());}
+function updateOtaReady(){
+ const file=firmwareInput.files[0];
+ const version=document.getElementById('firmware-version').value;
+ otaStart.disabled=!isDemoAdmin||!!otaRequest||!!validateFirmware(file)||!validateOtaVersion(version);
+}
+function renderApproval(){
+ const release=otaReleases.get('ESP32-001');
+ document.getElementById('current-firmware').textContent='Neznámy — ESP32 ešte nenahlasuje verziu';
+ document.getElementById('current-version').textContent='Verzia: neznáma';
+ document.getElementById('release-file').textContent=release?release.filename+' · '+(release.size/1024).toLocaleString('sk-SK',{maximumFractionDigits:1})+' kB':'Zatiaľ neoverené';
+ document.getElementById('release-version').textContent='Verzia: '+(release?.version||'neznáma');
+ const status=document.getElementById('release-status');
+ status.hidden=!release;
+ status.textContent=release?'Firmvér uložený na serveri · inštalácia nepovolená':'';
+ otaApprove.disabled=true;
+ otaRevoke.hidden=true;
+ document.getElementById('approval-message').textContent='Povolenie inštalácie ešte nie je implementované na serveri. Nahratý firmvér sa automaticky neinštaluje.';
+}
+firmwareInput.addEventListener('change',()=>{
+ const file=firmwareInput.files[0],error=validateFirmware(file);
+ const info=document.getElementById('firmware-info');
+ info.classList.toggle('ota-error',!!file&&!!error);
+ info.textContent=error||`${file.name} · ${(file.size/1024).toLocaleString('sk-SK',{maximumFractionDigits:1})} kB`;
+ document.getElementById('ota-progress-wrap').hidden=true;
+ otaMessage.textContent='Zadaj verziu vo formáte 1.0.1 a nahraj firmvér na Raspberry Pi.';
+ updateOtaReady();
 });
-otaCancel.addEventListener('click',()=>{endOta('Nahrávanie zrušené. Predchádzajúci firmvér a jeho povolenie zostali nezmenené.');document.getElementById('ota-stage').textContent='Nahrávanie zrušené';});
-otaApprove.addEventListener('click',()=>{const release=otaReleases.get(selectedOtaDevice);if(!isDemoAdmin||otaTimer!==null||!release)return;release.approved=true;renderApproval();});
-otaRevoke.addEventListener('click',()=>{const release=otaReleases.get(selectedOtaDevice);if(!isDemoAdmin||otaTimer!==null||!release)return;release.approved=false;renderApproval();document.getElementById('approval-message').textContent='Povolenie zrušené (simulácia). V reálnej prevádzke to nezastaví inštaláciu, ktorú už zariadenie začalo.';});
-// Prihlasovanie je riadene auth-gate.js a overovane cez Raspberry Pi.
+document.getElementById('firmware-version').addEventListener('input',updateOtaReady);
+function endOta(message,isError=false){
+ otaRequest=null;
+ firmwareInput.disabled=false;
+ document.getElementById('firmware-version').disabled=false;
+ otaCancel.hidden=true;
+ otaMessage.textContent=message;
+ otaMessage.classList.toggle('ota-error',isError);
+ updateOtaReady();renderApproval();
+}
+document.getElementById('ota-form').addEventListener('submit',event=>{
+ event.preventDefault();
+ const file=firmwareInput.files[0];
+ const version=document.getElementById('firmware-version').value.trim();
+ if(!isDemoAdmin||otaRequest||validateFirmware(file)||!validateOtaVersion(version)){
+  otaMessage.textContent='Vyber platný .bin súbor a zadaj verziu vo formáte 1.0.1.';return;
+ }
+ let destination;
+ try{destination=apiUrl('/api/ota/upload');}
+ catch(err){otaMessage.textContent=err.message;return;}
+ const xhr=new XMLHttpRequest();
+ otaRequest=xhr;
+ xhr.open('POST',destination,true);
+ xhr.withCredentials=true;
+ xhr.timeout=120000;
+ const form=new FormData();form.append('file',file,file.name);form.append('version',version);
+ firmwareInput.disabled=true;
+ document.getElementById('firmware-version').disabled=true;
+ otaStart.disabled=true;otaCancel.hidden=false;
+ otaMessage.classList.remove('ota-error');
+ otaMessage.textContent='Odosielam firmvér na Raspberry Pi…';
+ const progressWrap=document.getElementById('ota-progress-wrap');progressWrap.hidden=false;
+ const progress=document.getElementById('ota-progress');progress.value=0;
+ document.getElementById('ota-percent').textContent='0 %';
+ document.getElementById('ota-stage').textContent='Nahrávanie na server';
+ xhr.upload.addEventListener('progress',e=>{
+  if(e.lengthComputable){const pct=Math.min(99,Math.round(100*e.loaded/e.total));progress.value=pct;document.getElementById('ota-percent').textContent=pct+' %';}
+ });
+ xhr.addEventListener('load',()=>{
+  if(otaRequest!==xhr)return;
+  let data={};try{data=JSON.parse(xhr.responseText);}catch{}
+  if(xhr.status>=200&&xhr.status<300&&data.success===true){
+   otaReleases.set('ESP32-001',{filename:data.filename||file.name,version:data.version||version,size:data.size||file.size,sha256:data.sha256});
+   firmwareInput.value='';document.getElementById('firmware-info').textContent='Nie je vybraný žiadny súbor.';
+   progress.value=100;document.getElementById('ota-percent').textContent='100 %';document.getElementById('ota-stage').textContent='Uložené na serveri';
+   endOta('Firmvér '+version+' bol úspešne uložený na Raspberry Pi. Inštalácia ESP32 ešte nie je povolená.');
+  }else{
+   let detail=data.detail;
+   if(Array.isArray(detail))detail=detail.map(x=>x.msg).join('; ');
+   endOta('Nahrávanie zlyhalo (HTTP '+xhr.status+'): '+(detail||'Skontroluj prihlásenie, verziu a dostupnosť API.'),true);
+  }
+ });
+ xhr.addEventListener('error',()=>{if(otaRequest===xhr)endOta('Spojenie zlyhalo. Skontroluj Quick Tunnel a CORS.',true);});
+ xhr.addEventListener('timeout',()=>{if(otaRequest===xhr)endOta('Časový limit nahrávania vypršal.',true);});
+ xhr.addEventListener('abort',()=>{if(otaRequest===xhr)endOta('Odosielanie bolo zrušené. Over na serveri, či sa súbor už neuložil.',true);});
+ try{xhr.send(form);}catch(err){endOta('Nepodarilo sa spustiť nahrávanie: '+err.message,true);}
+});
+otaCancel.addEventListener('click',()=>{if(otaRequest)otaRequest.abort();});
 let isDemoAdmin=false;
 function showSection(ota){
  ota=Boolean(ota&&isDemoAdmin);
@@ -318,35 +381,16 @@ function setDemoAdmin(on){
  document.getElementById('logout').hidden=!on;
  document.getElementById('account-name').hidden=!on;
  document.getElementById('login-open').hidden=on;
- showSection(false);renderApproval();
+ showSection(false);renderApproval();updateOtaReady();
 }
 document.getElementById('overview-tab').addEventListener('click',()=>showSection(false));
 document.getElementById('ota-tab').addEventListener('click',()=>showSection(true));
 document.getElementById('logout').addEventListener('click',()=>{
- if(otaTimer)endOta('Simulácia zrušená odhlásením. Zariadenie sa nezmenilo.');
+ if(otaRequest)otaRequest.abort();
  document.getElementById('ota-form').reset();
  document.getElementById('ota-progress-wrap').hidden=true;
  document.getElementById('firmware-info').textContent='Nie je vybraný žiadny súbor.';
- otaStart.disabled=true;setDemoAdmin(false);
-});
-const otaDevices={
- 'esp32-01':{name:'Meteostanica 1 · ESP32-01',connection:'SIM800C / GPRS',currentFirmware:null},
- 'esp32-02':{name:'Meteostanica 2 · ESP32-02',connection:'SIM800C / GPRS',currentFirmware:null},
- 'esp32-03':{name:'Meteostanica 3 · ESP32-03',connection:'SIM800C / GPRS',currentFirmware:null}
-};
-let selectedOtaDevice='esp32-01';
-document.getElementById('ota-device').addEventListener('change',event=>{
- const device=otaDevices[event.target.value];
- if(otaTimer||!device){event.target.value=selectedOtaDevice;return;}
- selectedOtaDevice=event.target.value;
- document.getElementById('ota-device-name').textContent=device.name;
- document.getElementById('ota-device-connection').textContent=device.connection;
- firmwareInput.value='';document.getElementById('firmware-version').value='';otaStart.disabled=true;
- document.getElementById('firmware-info').textContent='Nie je vybraný žiadny súbor.';
- document.getElementById('firmware-info').classList.toggle('ota-error',false);
- document.getElementById('ota-progress-wrap').hidden=true;
- otaMessage.textContent=`Vybrané zariadenie: ${device.name}. Nahraj firmvér na server a potom samostatne povoľ jeho inštaláciu.`;
- renderApproval();
+ setDemoAdmin(false);
 });
 if(document.modelContext?.registerTool){try{Promise.resolve(document.modelContext.registerTool({name:'configure_measurement_view',description:'Choose a measured quantity and 24-hour or 7-day view of the SmartŽilina station data.',inputSchema:{type:'object',properties:{metric:{type:'string',enum:Object.keys(metricDefs)},hours:{type:'integer',enum:[24,168]}},required:['metric','hours'],additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false},execute(input){if(!input||!Object.hasOwn(metricDefs,input.metric)||![24,168].includes(input.hours))throw Error('Invalid view');if(!primaryMetrics.includes(input.metric)&&!liveData?.measurements[input.metric])throw Error('Measurement unavailable');selectedMetric=input.metric;period=input.hours;render();return{metric:selectedMetric,hours:period,points:visiblePoints(selectedMetric).filter(p=>p.value!==null).length}}})).catch(()=>{});}catch{}}
 
