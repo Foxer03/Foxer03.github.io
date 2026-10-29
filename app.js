@@ -62,7 +62,7 @@ document.getElementById('api-config-form').addEventListener('submit',event=>{
  let url;try{url=new URL(raw);if(url.protocol!=='https:'||url.pathname!=='/'||url.search||url.hash||url.username||url.password)throw Error();}catch{apiInput.setCustomValidity('Zadaj iba HTTPS adresu, napr. https://nazov.trycloudflare.com');apiInput.reportValidity();return;}
  apiInput.setCustomValidity('');apiBase=url.origin;apiInput.value=apiBase;
  try{localStorage.setItem(API_KEY,apiBase);}catch{}
- checkServices();loadMeasurements();loadEspHistory();
+ checkServices();loadMeasurements();loadEspHistory();loadAlertStations();
 });
 apiInput.addEventListener('input',()=>apiInput.setCustomValidity(''));
 setInterval(()=>{if(!document.hidden)checkServices();},30000);
@@ -85,7 +85,7 @@ async function loadEspHistory(){
  if(!apiBase){espMeasurements=[];render();return;}
  try{const response=await probe('/api/devices/ESP32-001/history?hours=168',20000);if(!Array.isArray(response.measurements))throw Error('Neplatna historia');espMeasurements=response.measurements;espLoadError=false;}
  catch(e){espLoadError=true;console.warn('ESP32 history:',e);}
- render();
+ render();if(!alertLoading&&espMeasurements.length)alertChecked=true;renderAlerts();
 }
 
 const fmt=(v,p=1)=>v.toLocaleString('sk-SK',{minimumFractionDigits:p,maximumFractionDigits:p});
@@ -147,7 +147,67 @@ document.querySelectorAll('[data-source]').forEach(button=>button.addEventListen
 document.getElementById('apply-range').addEventListener('click',()=>{const start=Date.parse(document.getElementById('range-start').value),end=Date.parse(document.getElementById('range-end').value);const notice=document.getElementById('range-notice');if(!Number.isFinite(start)||!Number.isFinite(end)||start>=end){notice.textContent='Zadaj platný začiatok a koniec obdobia.';return;}customRange={start,end};notice.textContent='Zobrazené budú dostupné merania v zadanom intervale. API momentálne poskytuje najviac 7 dní histórie.';render();});
 document.getElementById('reset-range').addEventListener('click',()=>{customRange=null;document.getElementById('range-start').value='';document.getElementById('range-end').value='';document.getElementById('range-notice').textContent='';render();});
 document.getElementById('refresh-data').addEventListener('click',loadMeasurements);
-render();loadMeasurements();loadEspHistory();setInterval(()=>{if(!document.hidden){loadMeasurements();loadEspHistory();}},300000);
+render();renderAlerts();loadMeasurements();loadEspHistory();loadAlertStations();setInterval(()=>{if(!document.hidden){loadMeasurements();loadEspHistory();loadAlertStations();}},300000);
+
+// Upozornenia vychádzajú z posledných dostupných meraní, nie zo simulácie.
+// Limity sú orientačné a dajú sa upraviť v tomto objekte; nejde o právne limity.
+const alertThresholds={
+ airTemperature:{max:30},airHumidity:{max:70},noiseLevel:{max:75},
+ airPm25:{max:35},airPm10:{max:50},airPm1:{max:25},airPm4:{max:40},
+ windSpeed:{max:15},windImpact:{max:20},rainGauge:{max:10},
+ co2:{max:1500},tvoc:{max:500}
+};
+const alertNames={co2:['eCO₂','ppm',0],tvoc:['TVOC','ppb',0]};
+const alertEspFields={co2:['ccs811_eco2','eco2','co2'],tvoc:['ccs811_tvoc','tvoc']};
+let alertStationData=new Map(),alertExpanded=false,alertLoading=false,alertChecked=false;
+const alertMaxAge=3*60*60*1000;
+function alertAdd(result,source,key,value,time){
+ const rule=alertThresholds[key];if(!rule||!Number.isFinite(value)||!Number.isFinite(time))return;
+ if(time>Date.now()+5*60000||Date.now()-time>alertMaxAge)return;
+ if(rule.max!==undefined&&value>rule.max){const def=metricDefs[key]||alertNames[key];if(!def)return;
+  result.push({source,name:def[0],value,unit:def[1],limit:rule.max,time,excess:(value-rule.max)/Math.max(rule.max,1)});
+ }
+}
+function latestAlertPoint(data,key){
+ const points=data?.measurements?.[key]?.points;if(!Array.isArray(points))return null;
+ let best=null;for(const p of points){const t=typeof p.time==='number'?p.time:Date.parse(p.time);const v=Number(p.value);if(p.value===null||p.value===''||!Number.isFinite(v)||!Number.isFinite(t))continue;if(!best||t>best.time)best={value:v,time:t};}return best;
+}
+function renderAlerts(){
+ const panel=document.getElementById('alert-center'),grid=document.getElementById('alert-cards'),more=document.getElementById('alert-more');if(!panel)return;
+ const alerts=[];
+ for(const station of stationDefs){const data=alertStationData.get(station.id);if(!data)continue;
+  for(const key of Object.keys(alertThresholds)){const point=latestAlertPoint(data,key);if(point)alertAdd(alerts,'Smart Žilina · '+station.name,key,point.value,point.time);}
+ }
+ // Z ESP32 vyberáme vždy posledné meranie pre daný senzor, aj keď sa v medzičase iné senzory nezmenili.
+ for(const key of Object.keys(alertThresholds)){
+  let best=null;const fields=alertEspFields[key];
+  for(const row of espMeasurements){const time=Date.parse(row.timestamp);if(!Number.isFinite(time))continue;
+   let value=null;if(fields){for(const field of fields){if(row[field]!==undefined&&row[field]!==null&&row[field]!==''&&Number.isFinite(Number(row[field]))){value=Number(row[field]);break;}}}else value=espValue(row,key);
+   if(value!==null&&(!best||time>best.time))best={value,time};
+  }if(best)alertAdd(alerts,'ESP32 · vlastný senzor',key,best.value,best.time);
+ }
+ alerts.sort((a,b)=>b.excess-a.excess||b.time-a.time);
+ panel.classList.toggle('has-alerts',alerts.length>0);
+ document.getElementById('alert-count').textContent=alerts.length?String(alerts.length):'✓';
+ document.getElementById('alert-title').textContent=alerts.length?alerts.length===1?'1 zvýšená hodnota':alerts.length+' zvýšených hodnôt':'Prostredie pod kontrolou';
+ document.getElementById('alert-caption').textContent=alerts.length?'Zaznamenali sme prekročenie orientačných hraníc.':'Automatická kontrola ESP32 a staníc Smart Žilina';
+ grid.replaceChildren();
+ if(!alerts.length){const d=document.createElement('div');d.className=alertChecked?'alert-ok':'alert-wait';d.textContent=alertLoading?'Kontrolujem stanice…':!apiBase?'Pripoj Cloudflare Tunnel na kontrolu meraní.':!alertChecked?'Údaje zatiaľ nie sú dostupné – nemožno vyhodnotiť limity.':'Žiadne zvýšené hodnoty z dostupných čerstvých meraní.';grid.append(d);}
+ else for(const a of (alertExpanded?alerts:alerts.slice(0,3))){const item=document.createElement('article');item.className='alert-card';const label=document.createElement('div');label.className='alert-card-label';label.textContent=a.name;const amount=document.createElement('strong');amount.textContent=a.value.toLocaleString('sk-SK',{maximumFractionDigits:2})+' '+a.unit;const where=document.createElement('div');where.className='where';where.textContent=a.source;const details=document.createElement('div');details.className='details';details.textContent='Orientačná hranica: '+a.limit.toLocaleString('sk-SK')+' '+a.unit+' · '+timeLabel(a.time,true);item.append(label,amount,where,details);grid.append(item);}
+ more.hidden=alerts.length<=3;more.textContent=alertExpanded?'Zobraziť menej':'Zobraziť všetky výstrahy ('+alerts.length+')';
+}
+async function loadAlertStations(){
+ if(!apiBase){alertStationData.clear();alertChecked=false;renderAlerts();return;}
+ alertLoading=true;renderAlerts();
+ const base=apiBase;
+ // Limit paralelných požiadaviek: iba tri naraz.
+ const queue=[...stationDefs];const updates=new Map();
+ await Promise.all(Array.from({length:3},async()=>{while(queue.length){const st=queue.shift();try{const data=await probe('/api/smartzilina?station='+encodeURIComponent(st.id),16000);if(base===apiBase&&data.station?.id===st.id&&data.measurements)updates.set(st.id,data);}catch{}}}));
+ if(base!==apiBase)return;
+ alertStationData=updates;alertLoading=false;alertChecked=updates.size>0||espMeasurements.length>0;renderAlerts();
+}
+document.getElementById('alert-more').addEventListener('click',()=>{alertExpanded=!alertExpanded;renderAlerts();});
+
 // UI-only server upload and per-device approval. No real upload or installation.
 const firmwareInput=document.getElementById('firmware');
 const otaStart=document.getElementById('ota-start');
