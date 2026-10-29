@@ -147,7 +147,7 @@ document.querySelectorAll('[data-source]').forEach(button=>button.addEventListen
 document.getElementById('apply-range').addEventListener('click',()=>{const start=Date.parse(document.getElementById('range-start').value),end=Date.parse(document.getElementById('range-end').value);const notice=document.getElementById('range-notice');if(!Number.isFinite(start)||!Number.isFinite(end)||start>=end){notice.textContent='Zadaj platný začiatok a koniec obdobia.';return;}customRange={start,end};notice.textContent='Zobrazené budú dostupné merania v zadanom intervale. API momentálne poskytuje najviac 7 dní histórie.';render();});
 document.getElementById('reset-range').addEventListener('click',()=>{customRange=null;document.getElementById('range-start').value='';document.getElementById('range-end').value='';document.getElementById('range-notice').textContent='';render();});
 document.getElementById('refresh-data').addEventListener('click',loadMeasurements);
-render();renderAlerts();loadMeasurements();loadEspHistory();loadAlertStations();setInterval(()=>{if(!document.hidden){loadMeasurements();loadEspHistory();loadAlertStations();}},300000);
+
 
 // Upozornenia vychádzajú z posledných dostupných meraní, nie zo simulácie.
 // Limity sú orientačné a dajú sa upraviť v tomto objekte; nejde o právne limity.
@@ -297,3 +297,10 @@ document.getElementById('ota-device').addEventListener('change',event=>{
 if(document.modelContext?.registerTool){try{Promise.resolve(document.modelContext.registerTool({name:'configure_measurement_view',description:'Choose a measured quantity and 24-hour or 7-day view of the SmartŽilina station data.',inputSchema:{type:'object',properties:{metric:{type:'string',enum:Object.keys(metricDefs)},hours:{type:'integer',enum:[24,168]}},required:['metric','hours'],additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false},execute(input){if(!input||!Object.hasOwn(metricDefs,input.metric)||![24,168].includes(input.hours))throw Error('Invalid view');if(!primaryMetrics.includes(input.metric)&&!liveData?.measurements[input.metric])throw Error('Measurement unavailable');selectedMetric=input.metric;period=input.hours;render();return{metric:selectedMetric,hours:period,points:visiblePoints(selectedMetric).filter(p=>p.value!==null).length}}})).catch(()=>{});}catch{}}
 
 setDemoAdmin(false);
+// Spustenie až po inicializácii stavov výstrah a OTA ovládania.
+render();
+renderAlerts();
+loadMeasurements();
+loadEspHistory();
+loadAlertStations();
+setInterval(()=>{if(!document.hidden){loadMeasurements();loadEspHistory();loadAlertStations();}},300000);

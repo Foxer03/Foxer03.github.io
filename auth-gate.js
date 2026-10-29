@@ -29,7 +29,7 @@ async function authFetch(base,path,options={}){
 }
 function unlock(){authenticated=true;document.documentElement.classList.remove('esp32-locked');document.getElementById('esp32-auth-gate').hidden=true;try{sessionStorage.setItem(PAGE,'1')}catch{}
  // Aplikácia sa inicializovala pred prihlásením; po odomknutí obnovíme údaje.
- if(!isMap){if(typeof checkServices==='function')checkServices();if(typeof loadMeasurements==='function')loadMeasurements();if(typeof loadEspHistory==='function')loadEspHistory();if(typeof setDemoAdmin==='function')setDemoAdmin(true);}
+ if(!isMap){if(typeof checkServices==='function')checkServices();if(typeof loadMeasurements==='function')loadMeasurements();if(typeof loadEspHistory==='function')loadEspHistory();if(typeof loadAlertStations==='function')loadAlertStations();if(typeof setDemoAdmin==='function')setDemoAdmin(true);}
  else {if(typeof loadESP==='function')loadESP();}
 }
 function lock(){if(typeof setDemoAdmin==='function')setDemoAdmin(false);authenticated=false;document.documentElement.classList.add('esp32-locked');document.getElementById('esp32-auth-gate').hidden=false;try{sessionStorage.removeItem(PAGE)}catch{}}
@@ -48,10 +48,6 @@ document.addEventListener('DOMContentLoaded',async()=>{
  // V rámci jednej karty zachovaj prihlásenie pri prechode medzi Prehľadom a Mapou.
  // Stav v sessionStorage nestačí: vždy over platnosť relácie na FastAPI.
  // V novej karte (bez uloženého stavu) sa zobrazí prihlasovacie okno.
- if(sessionStorage.getItem(PAGE)==='1'&&getBase()){
-   try{await authFetch(getBase(),'/api/auth/me');unlock();return}
-   catch{try{sessionStorage.removeItem(PAGE)}catch{}}
- }
  form.addEventListener('submit',async(e)=>{
  e.preventDefault();msg.textContent='';btn.disabled=true;btn.textContent='Overujem…';
  try{
@@ -65,5 +61,10 @@ document.addEventListener('DOMContentLoaded',async()=>{
  }catch(err){msg.textContent=err instanceof TypeError?'Nepodarilo sa pripojiť k API. Skontroluj URL, HTTPS a CORS.':err.message;}
  finally{btn.disabled=false;btn.textContent='Prihlásiť sa';}
  });
+ if(sessionStorage.getItem(PAGE)==='1'&&getBase()){
+   try{await authFetch(getBase(),'/api/auth/me');unlock();return}
+   catch{try{sessionStorage.removeItem(PAGE)}catch{}}
+ }
+
 });
 })();
