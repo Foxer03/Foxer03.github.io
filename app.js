@@ -276,15 +276,16 @@ function closeAlertDetail(){alertDialog.close();}
 document.getElementById('alert-dialog-close').addEventListener('click',closeAlertDetail);
 alertDialog.addEventListener('click',e=>{if(e.target===alertDialog)closeAlertDetail();});
 
-// Reálne OTA nahrávanie. Povolenie inštalácie sa zapne až po pridaní serverového API.
+// OTA nahrávanie a administrátorské schvaľovanie cez Raspberry Pi.
 const firmwareInput=document.getElementById('firmware');
 const otaStart=document.getElementById('ota-start');
 const otaCancel=document.getElementById('ota-cancel');
 const otaMessage=document.getElementById('ota-message');
 const otaApprove=document.getElementById('ota-approve');
 const otaRevoke=document.getElementById('ota-revoke');
-const otaReleases=new Map();
-let otaRequest=null;
+ let otaServerState=null;
+ let otaRequest=null;
+ let otaBusy=false;
 const MAX_FIRMWARE_SIZE=4*1024*1024;
 function validateFirmware(file){
  if(!file)return 'Vyber súbor firmvéru.';
@@ -299,19 +300,60 @@ function updateOtaReady(){
  const version=document.getElementById('firmware-version').value;
  otaStart.disabled=!isDemoAdmin||!!otaRequest||!!validateFirmware(file)||!validateOtaVersion(version);
 }
-function renderApproval(){
- const release=otaReleases.get('ESP32-001');
- document.getElementById('current-firmware').textContent='Neznámy — ESP32 ešte nenahlasuje verziu';
- document.getElementById('current-version').textContent='Verzia: neznáma';
- document.getElementById('release-file').textContent=release?release.filename+' · '+(release.size/1024).toLocaleString('sk-SK',{maximumFractionDigits:1})+' kB':'Zatiaľ neoverené';
- document.getElementById('release-version').textContent='Verzia: '+(release?.version||'neznáma');
- const status=document.getElementById('release-status');
- status.hidden=!release;
- status.textContent=release?'Firmvér uložený na serveri · inštalácia nepovolená':'';
- otaApprove.disabled=true;
- otaRevoke.hidden=true;
- document.getElementById('approval-message').textContent='Povolenie inštalácie ešte nie je implementované na serveri. Nahratý firmvér sa automaticky neinštaluje.';
-}
+ function renderApproval(){
+  const release=otaServerState?.latest||null;
+  const approval=otaServerState?.approval||null;
+  const approvedCurrent=!!(approval&&release&&approval.version===release.version&&approval.sha256===release.sha256);
+  document.getElementById('current-firmware').textContent='Neznámy — ESP32 ešte nenahlasuje verziu';
+  document.getElementById('current-version').textContent='Verzia: neznáma';
+  document.getElementById('release-file').textContent=release?release.filename+' · '+(release.size/1024).toLocaleString('sk-SK',{maximumFractionDigits:1})+' kB':'Zatiaľ nenahratý';
+  document.getElementById('release-version').textContent='Verzia: '+(release?.version||'neznáma');
+  const status=document.getElementById('release-status');
+  status.hidden=!release;
+  status.textContent=release?(approvedCurrent?'Administrátor povolil verziu '+release.version+' · inštalácia na ESP32 zatiaľ nie je implementovaná':approval?'Schválená staršia verzia '+approval.version+' · najnovšia verzia čaká na schválenie':'Firmvér uložený · inštalácia nepovolená'):'';
+  otaApprove.disabled=!isDemoAdmin||!release||approvedCurrent||otaBusy||!!otaRequest;
+  otaRevoke.hidden=!approval;
+  otaRevoke.disabled=!isDemoAdmin||otaBusy||!!otaRequest;
+  document.getElementById('approval-message').textContent=approval?'Schválená verzia: '+approval.version+'. Toto je len administratívne schválenie, nie pokyn na inštaláciu.':'Schválenie sa ukladá na Raspberry Pi. Samotné OTA cez MQTT doplníme neskôr.';
+ }
+ async function refreshOtaStatus(){
+  if(!isDemoAdmin)return;
+  try{
+   const response=await fetch(apiUrl('/api/ota/status'),{credentials:'include',cache:'no-store'});
+   if(!response.ok)throw new Error('HTTP '+response.status);
+   otaServerState=await response.json();
+   renderApproval();
+  }catch(error){
+   otaMessage.textContent='Nepodarilo sa načítať OTA stav: '+error.message;
+   otaMessage.classList.add('ota-error');
+  }
+ }
+ async function sendOtaDecision(path,payload){
+  if(!isDemoAdmin||otaBusy)return;
+  otaBusy=true;renderApproval();
+  try{
+   const response=await fetch(apiUrl(path),{
+    method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload||{})
+   });
+   const data=await response.json().catch(()=>({}));
+   if(!response.ok)throw new Error(data.detail||'HTTP '+response.status);
+   otaMessage.classList.remove('ota-error');
+   otaMessage.textContent=path.endsWith('/approve')?'Schválenie bolo uložené na Raspberry Pi. ESP32 zatiaľ nebude nič inštalovať.':'Povolenie aktualizácie bolo zrušené.';
+   await refreshOtaStatus();
+  }catch(error){
+   otaMessage.textContent='OTA operácia zlyhala: '+error.message;
+   otaMessage.classList.add('ota-error');
+  }finally{otaBusy=false;renderApproval();}
+ }
+ otaApprove.addEventListener('click',()=>{
+  const release=otaServerState?.latest;
+  if(!release)return;
+  if(!confirm('Schváliť verziu '+release.version+' pre ESP32-001? Schválenie zatiaľ aktualizáciu nespúšťa.'))return;
+  sendOtaDecision('/api/ota/approve',{version:release.version,device_id:'ESP32-001'});
+ });
+ otaRevoke.addEventListener('click',()=>sendOtaDecision('/api/ota/revoke'));
 firmwareInput.addEventListener('change',()=>{
  const file=firmwareInput.files[0],error=validateFirmware(file);
  const info=document.getElementById('firmware-info');
@@ -363,10 +405,11 @@ document.getElementById('ota-form').addEventListener('submit',event=>{
   if(otaRequest!==xhr)return;
   let data={};try{data=JSON.parse(xhr.responseText);}catch{}
   if(xhr.status>=200&&xhr.status<300&&data.success===true){
-   otaReleases.set('ESP32-001',{filename:data.filename||file.name,version:data.version||version,size:data.size||file.size,sha256:data.sha256});
+    otaServerState=null;
    firmwareInput.value='';document.getElementById('firmware-info').textContent='Nie je vybraný žiadny súbor.';
    progress.value=100;document.getElementById('ota-percent').textContent='100 %';document.getElementById('ota-stage').textContent='Uložené na serveri';
    endOta('Firmvér '+version+' bol úspešne uložený na Raspberry Pi. Inštalácia ESP32 ešte nie je povolená.');
+   refreshOtaStatus();
   }else{
    let detail=data.detail;
    if(Array.isArray(detail))detail=detail.map(x=>x.msg).join('; ');
@@ -396,9 +439,10 @@ function setDemoAdmin(on){
  document.getElementById('account-name').hidden=!on;
  document.getElementById('login-open').hidden=on;
  showSection(false);renderApproval();updateOtaReady();
+ if(isDemoAdmin)refreshOtaStatus();else otaServerState=null;
 }
 document.getElementById('overview-tab').addEventListener('click',()=>showSection(false));
-document.getElementById('ota-tab').addEventListener('click',()=>showSection(true));
+document.getElementById('ota-tab').addEventListener('click',()=>{showSection(true);refreshOtaStatus();});
 document.getElementById('logout').addEventListener('click',()=>{
  if(otaRequest)otaRequest.abort();
  document.getElementById('ota-form').reset();
