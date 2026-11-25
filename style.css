@@ -91,3 +91,7 @@
 
 /* Priemery z tabulky zobrazene ako prerusovane ciary v grafe */
 .average-controls{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px 20px;margin:2px 0 12px}.average-switch{display:inline-flex;align-items:center;gap:9px;cursor:pointer;color:#4d6080;font-weight:600;font-size:13px}.average-switch input{accent-color:#345ff5;width:17px;height:17px;cursor:pointer}.average-values{display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px}.average-values[hidden]{display:none}.average-chip{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#56657b}.average-chip::before{content:"";width:20px;border-top:2px dashed currentColor}.average-chip.esp{color:#2e5bff}.average-chip.smart{color:#0b877b}#chart .mean-line{pointer-events:none}@media(max-width:600px){.average-controls{align-items:flex-start;flex-direction:column}.average-values{gap:8px 14px}}
+
+/* OTA device reporting */
+#ota-device-progress{display:block;width:100%;height:14px;margin-top:10px;accent-color:#5266e8;}
+#ota-device-progress-text{display:block;}

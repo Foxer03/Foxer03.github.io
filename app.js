@@ -284,6 +284,7 @@ const otaMessage=document.getElementById('ota-message');
 const otaApprove=document.getElementById('ota-approve');
 const otaRevoke=document.getElementById('ota-revoke');
  let otaServerState=null;
+ let otaDeviceStatus=null;
  let otaRequest=null;
  let otaBusy=false;
 const MAX_FIRMWARE_SIZE=4*1024*1024;
@@ -304,18 +305,51 @@ function updateOtaReady(){
   const release=otaServerState?.latest||null;
   const approval=otaServerState?.approval||null;
   const approvedCurrent=!!(approval&&release&&approval.version===release.version&&approval.sha256===release.sha256);
-  document.getElementById('current-firmware').textContent='Neznámy — ESP32 ešte nenahlasuje verziu';
-  document.getElementById('current-version').textContent='Verzia: neznáma';
+  document.getElementById('current-firmware').textContent=otaDeviceStatus?.firmware_version?'ESP32-001 · Meteostanica':'Neznámy — ESP32 ešte nenahlasuje verziu';
+  document.getElementById('current-version').textContent='Verzia: '+(otaDeviceStatus?.firmware_version||'neznáma');
   document.getElementById('release-file').textContent=release?release.filename+' · '+(release.size/1024).toLocaleString('sk-SK',{maximumFractionDigits:1})+' kB':'Zatiaľ nenahratý';
   document.getElementById('release-version').textContent='Verzia: '+(release?.version||'neznáma');
   const status=document.getElementById('release-status');
   status.hidden=!release;
-  status.textContent=release?(approvedCurrent?'Administrátor povolil verziu '+release.version+' · inštalácia na ESP32 zatiaľ nie je implementovaná':approval?'Schválená staršia verzia '+approval.version+' · najnovšia verzia čaká na schválenie':'Firmvér uložený · inštalácia nepovolená'):'';
+  status.textContent=release?(approvedCurrent?'Administrátor povolil verziu '+release.version+' · zariadenie vykoná OTA len s povoleným režimom inštalácie':approval?'Schválená staršia verzia '+approval.version+' · najnovšia verzia čaká na schválenie':'Firmvér uložený · inštalácia nepovolená'):'';
   otaApprove.disabled=!isDemoAdmin||!release||approvedCurrent||otaBusy||!!otaRequest;
   otaRevoke.hidden=!approval;
   otaRevoke.disabled=!isDemoAdmin||otaBusy||!!otaRequest;
-  document.getElementById('approval-message').textContent=approval?'Schválená verzia: '+approval.version+'. Toto je len administratívne schválenie, nie pokyn na inštaláciu.':'Schválenie sa ukladá na Raspberry Pi. Samotné OTA cez MQTT doplníme neskôr.';
+  document.getElementById('approval-message').textContent=approval?'Schválená verzia: '+approval.version+'. Toto je len administratívne schválenie, nie pokyn na inštaláciu.':'Zariadenie si cez MQTT kontroluje schválené aktualizácie.';
  }
+ const otaStateNames={idle:'Čaká na kontrolu',checking:'Kontroluje aktualizáciu',available:'Aktualizácia dostupná',downloading:'Sťahuje firmvér',verifying:'Overuje SHA-256',installing:'Pripravuje reštart',success:'Aktualizácia dokončená',error:'Chyba aktualizácie',unknown:'Stav neznámy'};
+ function renderDeviceStatus(){
+  const s=otaDeviceStatus||{};
+  const seen=s.last_seen?new Date(s.last_seen).getTime():NaN;
+  const age=Number.isFinite(seen)?Date.now()-seen:Infinity;
+  const state=age<3*60*1000?'Online':age<90*60*1000?'Spánok / čaká na ďalšie meranie':Number.isFinite(seen)?'Offline (dlhšie bez hlásenia)':'Zatiaľ bez MQTT stavu';
+  document.getElementById('ota-device-state').textContent=state;
+  document.getElementById('ota-device-last').textContent=s.last_measurement_at?'Posledné meranie: '+new Date(s.last_measurement_at).toLocaleString('sk-SK'):(Number.isFinite(seen)?'Posledný kontakt: '+new Date(seen).toLocaleString('sk-SK'):'Zatiaľ bez merania');
+  document.getElementById('ota-device-version').textContent=s.firmware_version||'Neznáma';
+  document.getElementById('ota-device-ota-state').textContent=(otaStateNames[s.ota_state]||'Čakám na hlásenie')+(s.detail?' · '+s.detail:'');
+  document.getElementById('ota-device-signal').textContent=Number.isFinite(s.signal_csq)?s.signal_csq+' CSQ':'Neznámy';
+  const pct=Math.max(0,Math.min(100,Number(s.ota_progress)||0));
+  document.getElementById('ota-device-progress').value=pct;
+  document.getElementById('ota-device-progress-text').textContent=pct+' %';
+ }
+ async function refreshDeviceStatus(){
+  if(!isDemoAdmin)return;
+  try{
+   const r=await fetch(apiUrl('/api/ota/device-status'),{credentials:'include',cache:'no-store'});
+   if(!r.ok)throw new Error('HTTP '+r.status);
+   otaDeviceStatus=await r.json();
+  }catch(error){
+   console.warn('OTA device status:',error.message);
+   otaDeviceStatus=null;
+  }
+  renderDeviceStatus();
+  renderApproval();
+ }
+ setInterval(()=>{
+  if(isDemoAdmin && !document.getElementById('ota-panel').hidden){
+   refreshDeviceStatus(); refreshOtaStatus();
+  }
+ },15000);
  async function refreshOtaStatus(){
   if(!isDemoAdmin)return;
   try{
@@ -340,7 +374,7 @@ function updateOtaReady(){
    const data=await response.json().catch(()=>({}));
    if(!response.ok)throw new Error(data.detail||'HTTP '+response.status);
    otaMessage.classList.remove('ota-error');
-   otaMessage.textContent=path.endsWith('/approve')?'Schválenie bolo uložené na Raspberry Pi. ESP32 zatiaľ nebude nič inštalovať.':'Povolenie aktualizácie bolo zrušené.';
+   otaMessage.textContent=path.endsWith('/approve')?'Schválenie uložené na Raspberry Pi. Zariadenie rozhodne podľa svojho OTA režimu.':'Povolenie aktualizácie bolo zrušené.';
    await refreshOtaStatus();
   }catch(error){
    otaMessage.textContent='OTA operácia zlyhala: '+error.message;
@@ -350,7 +384,7 @@ function updateOtaReady(){
  otaApprove.addEventListener('click',()=>{
   const release=otaServerState?.latest;
   if(!release)return;
-  if(!confirm('Schváliť verziu '+release.version+' pre ESP32-001? Schválenie zatiaľ aktualizáciu nespúšťa.'))return;
+  if(!confirm('Schváliť verziu '+release.version+' pre ESP32-001? Pri zapnutej OTA inštalácii sa môže zariadenie automaticky aktualizovať.'))return;
   sendOtaDecision('/api/ota/approve',{version:release.version,device_id:'ESP32-001'});
  });
  otaRevoke.addEventListener('click',()=>sendOtaDecision('/api/ota/revoke'));
@@ -408,7 +442,7 @@ document.getElementById('ota-form').addEventListener('submit',event=>{
     otaServerState=null;
    firmwareInput.value='';document.getElementById('firmware-info').textContent='Nie je vybraný žiadny súbor.';
    progress.value=100;document.getElementById('ota-percent').textContent='100 %';document.getElementById('ota-stage').textContent='Uložené na serveri';
-   endOta('Firmvér '+version+' bol úspešne uložený na Raspberry Pi. Inštalácia ESP32 ešte nie je povolená.');
+   endOta('Firmvér '+version+' bol uložený na Raspberry Pi. Na inštaláciu potrebuje schválenie.');
    refreshOtaStatus();
   }else{
    let detail=data.detail;
@@ -439,10 +473,10 @@ function setDemoAdmin(on){
  document.getElementById('account-name').hidden=!on;
  document.getElementById('login-open').hidden=on;
  showSection(false);renderApproval();updateOtaReady();
- if(isDemoAdmin)refreshOtaStatus();else otaServerState=null;
+ if(isDemoAdmin){refreshOtaStatus();refreshDeviceStatus();}else {otaServerState=null;otaDeviceStatus=null;renderDeviceStatus();}
 }
 document.getElementById('overview-tab').addEventListener('click',()=>showSection(false));
-document.getElementById('ota-tab').addEventListener('click',()=>{showSection(true);refreshOtaStatus();});
+document.getElementById('ota-tab').addEventListener('click',()=>{showSection(true);refreshOtaStatus();refreshDeviceStatus();});
 document.getElementById('logout').addEventListener('click',()=>{
  if(otaRequest)otaRequest.abort();
  document.getElementById('ota-form').reset();
